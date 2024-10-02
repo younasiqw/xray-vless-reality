@@ -83,7 +83,7 @@ fi
 pause
 
 # 准备工作
-apt update
+apt update -y && apt upgrade -y
 apt install -y curl sudo jq qrencode
 
 # Xray官方脚本 安装最新版本
@@ -117,14 +117,14 @@ if [[ -n $uuid ]]; then
 fi
 
 # 打开BBR
-echo
-echo -e "$yellow打开BBR$none"
-echo "----------------------------------------------------------------"
-sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-echo "net.ipv4.tcp_congestion_control = bbr" >>/etc/sysctl.conf
-echo "net.core.default_qdisc = fq" >>/etc/sysctl.conf
-sysctl -p >/dev/null 2>&1
+# echo
+# echo -e "$yellow打开BBR$none"
+# echo "----------------------------------------------------------------"
+# sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
+# sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
+# echo "net.ipv4.tcp_congestion_control = bbr" >>/etc/sysctl.conf
+# echo "net.core.default_qdisc = fq" >>/etc/sysctl.conf
+# sysctl -p >/dev/null 2>&1
 
 # 配置 VLESS_Reality 模式, 需要:端口, UUID, x25519公私钥, 目标网站
 echo
@@ -358,9 +358,8 @@ cat > /usr/local/etc/xray/config.json <<-EOF
   ],
   "dns": {
     "servers": [
-      "8.8.8.8",
       "1.1.1.1",
-      "2001:4860:4860::8888",
+      "8.8.8.8",
       "2606:4700:4700::1111",
       "localhost"
     ]

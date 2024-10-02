@@ -400,7 +400,7 @@ echo "----------------------------------------------------------------"
 service xray restart
 
 # 指纹FingerPrint
-fingerprint="random"
+fingerprint="chrome"
 
 # SpiderX
 spiderx=""

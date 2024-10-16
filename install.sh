@@ -472,7 +472,7 @@ elif  [[ $netstack == "4" ]]; then
     pause
 
     # 安装 WARP IPv6
-    bash <(curl -L git.io/warp.sh) 6
+    bash <(curl -fsSL git.io/warp.sh) 6
 
     # 重启 Xray
     echo

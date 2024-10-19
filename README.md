@@ -115,7 +115,7 @@ xray uuid
 ```
 
 
-# 默认warp配置 /usr/local/etc/xray/config.json
+# 默认安装配置 /usr/local/etc/xray/config.json
 ```
 { // VLESS + Reality
   "log": {

@@ -65,7 +65,57 @@ xray uuid
 个人使用可以不管，留空
 
 
-# 配置 /usr/local/etc/xray/config.json
+# 初始Xray配置 /usr/local/etc/xray/config.json
+```
+{ // VLESS + Reality
+  "log": {
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log",
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 443,    // 理论上可以随便改，不过从访问行为上，我个人认为使用443比较合适
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "你的UUID",    // ***改这里
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "你喜欢的网站:443",    // ***如 learn.microsoft.com:443
+          "xver": 0,
+          "serverNames": ["你喜欢的网站"],    //***如 learn.microsoft.com
+          "privateKey": "你的**私钥**",    // ***改这里
+          "shortIds": [""]    // 可以留空
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+      }
+    ]
+}
+```
+
+
+# 默认warp配置 /usr/local/etc/xray/config.json
 ```
 { // VLESS + Reality
   "log": {

@@ -27,6 +27,10 @@ error() {
     echo -e "\n$red 输入错误! $none\n"
 }
 
+warn() {
+    echo -e "\n$yellow $1 $none\n"
+}
+
 pause() {
     read -rsp "$(echo -e "按 $green Enter 回车键 $none 继续....或按 $red Ctrl + C $none 取消.")" -d $'\n'
     echo
@@ -38,8 +42,28 @@ echo -e "$yellow此脚本仅兼容于Debian 10+系统. 如果你的系统不符�
 echo -e "可以去 ${cyan}https://github.com/crazypeace/xray-vless-reality${none} 查看脚本整体思路和关键命令, 以便针对你自己的系统做出调整."
 echo "----------------------------------------------------------------"
 
-uuidSeed=$(curl -sL https://www.cloudflare.com/cdn-cgi/trace | grep -oP 'ip=\K.*$')$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)
+# 本机 IP
+InFaces=($(ls /sys/class/net/ | grep -E '^(eth|ens|eno|esp|enp|venet|vif)'))
+
+for i in "${InFaces[@]}"; do  # 从网口循环获取IP
+    # 增加超时时间, 以免在某些网络环境下请求IPv6等待太久
+    Public_IPv4=$(curl -4s --interface "$i" -m 2 https://www.cloudflare.com/cdn-cgi/trace | grep -oP "ip=\K.*$")
+    Public_IPv6=$(curl -6s --interface "$i" -m 2 https://www.cloudflare.com/cdn-cgi/trace | grep -oP "ip=\K.*$")
+
+    if [[ -n "$Public_IPv4" ]]; then  # 检查是否获取到IP地址
+        IPv4="$Public_IPv4"
+    fi
+    if [[ -n "$Public_IPv6" ]]; then  # 检查是否获取到IP地址            
+        IPv6="$Public_IPv6"
+    fi
+done
+
+# 通过IP, host, 时区, 生成UUID. 重装脚本不改变, 不改变节点信息, 方便个人使用
+uuidSeed=${IPv4}${IPv6}$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)
 default_uuid=$(curl -sL https://www.uuidtools.com/api/generate/v3/namespace/ns:dns/name/${uuidSeed} | grep -oP '[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}')
+
+# 如果你想使用纯随机的UUID
+# default_uuid=$(cat /proc/sys/kernel/random/uuid)
 
 # 执行脚本带参数
 if [ $# -ge 1 ]; then
@@ -47,20 +71,23 @@ if [ $# -ge 1 ]; then
     case ${1} in
     4)
         netstack=4
-        ip=$(curl -4s https://www.cloudflare.com/cdn-cgi/trace | grep -oP 'ip=\K.*$')
+        ip=${IPv4}
         ;;
     6)
         netstack=6
-        ip=$(curl -6s https://www.cloudflare.com/cdn-cgi/trace | grep -oP 'ip=\K.*$')
-        ;;    
+        ip=${IPv6}
+        ;;
     *) # initial
-        ip=$(curl -s https://www.cloudflare.com/cdn-cgi/trace | grep -oP 'ip=\K.*$')
-        if [[ -z $(echo -n ${ip} | sed -E 's/([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})//g') ]]; then
-          netstack=4
+        if [[ -n "$IPv4" ]]; then  # 检查是否获取到IP地址
+            netstack=4
+            ip=${IPv4}
+        elif [[ -n "$IPv6" ]]; then  # 检查是否获取到IP地址            
+            netstack=6
+            ip=${IPv6}
         else
-          netstack=6
+            warn "没有获取到公共IP"
         fi
-        ;;    
+        ;;
     esac
 
     # 第2个参数是port
@@ -81,7 +108,8 @@ if [ $# -ge 1 ]; then
         uuid=${default_uuid}
     fi
 
-    echo -e "$yellow netstack: ${netstack} ${none}"
+    echo -e "$yellow netstack = ${cyan}${netstack}${none}"
+    echo -e "$yellow 本机IP = ${cyan}${ip}${none}"
     echo -e "$yellow 端口 (Port) = ${cyan}${port}${none}"
     echo -e "$yellow 用户ID (User ID / UUID) = $cyan${uuid}${none}"
     echo -e "$yellow SNI = ${cyan}$domain${none}"
@@ -92,7 +120,7 @@ pause
 
 # 准备工作
 apt update -y && apt upgrade -y
-apt install -y curl sudo jq qrencode
+apt install -y curl sudo jq qrencode net-tools lsof
 
 # Xray官方脚本 安装最新版本
 echo
@@ -105,15 +133,18 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 
 # 如果脚本带参数执行的, 要在安装了xray之后再生成默认私钥公钥shortID
 if [[ -n $uuid ]]; then
-  #私钥种子
-  private_key=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+  # 私钥种子
+  # x25519对私钥有一定要求, 不是任意随机的都满足要求, 所以下面这个字符串只能当作种子看待
+  reality_key_seed=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
 
-  #生成私钥公钥
-  tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-  private_key=$(echo ${tmp_key} | awk '{print $3}')
-  public_key=$(echo ${tmp_key} | awk '{print $6}')
+  # 生成私钥公钥
+  # xray x25519 如果接收一个合法的私钥, 会生成对应的公钥. 如果接收一个非法的私钥, 会先"修正"为合法的私钥. 这个"修正"的过程, 会修改其中的一些字节
+  # https://github.dev/XTLS/Xray-core/blob/6830089d3c42483512842369c908f9de75da2eaa/main/commands/all/curve25519.go#L36
+  tmp_key=$(echo -n ${reality_key_seed} | xargs xray x25519 -i)
+  private_key=$(echo ${tmp_key} | awk '{print $2}')
+  public_key=$(echo ${tmp_key} | awk '{print $4}')
 
-  #ShortID
+  # ShortID
   shortid=$(echo -n ${uuid} | sha1sum | head -c 16)
   
   echo
@@ -146,31 +177,19 @@ if [[ -z $netstack ]]; then
   echo "如果你不懂这段话是什么意思, 请直接回车"
   read -p "$(echo -e "Input ${cyan}4${none} for IPv4, ${cyan}6${none} for IPv6:") " netstack
 
-  # 本机IP
-  InFaces=($(ifconfig -s | awk '{print $1}' | grep -E '^(eth|ens|eno|esp|enp|venet|vif)'))  #找所有的网口
-
-  for i in "${InFaces[@]}"; do  # 从网口循环获取IP
-    Public_IPv4=$(curl -4s --interface "$i" https://www.cloudflare.com/cdn-cgi/trace | grep -oP "ip=\K.*$")
-    Public_IPv6=$(curl -6s --interface "$i" https://www.cloudflare.com/cdn-cgi/trace | grep -oP "ip=\K.*$")
-
-    if [[ -n "$Public_IPv4" || -n "$Public_IPv6" ]]; then  # 检查是否获取到IP地址
-      IPv4="$Public_IPv4"
-      IPv6="$Public_IPv6"
-      break  # 获取到任一IP类型停止循环
-    fi
-  done
-
   if [[ $netstack == "4" ]]; then
-    ip=$IPv4
+    ip=${IPv4}
   elif [[ $netstack == "6" ]]; then
-    ip=$IPv6
+    ip=${IPv6}
   else
     if [[ -n "$IPv4" ]]; then
-      ip=$IPv4
+      ip=${IPv4}
       netstack=4
     elif [[ -n "$IPv6" ]]; then
-      ip=$IPv6
+      ip=${IPv6}
       netstack=6
+    else
+      warn "没有获取到公共IP"
     fi
   fi
 fi
@@ -222,11 +241,15 @@ fi
 # x25519公私钥
 if [[ -z $private_key ]]; then
   # 私钥种子
-  private_key=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+ # x25519对私钥有一定要求, 不是任意随机的都满足要求, 所以下面这个字符串只能当作种子看待
+  reality_key_seed=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
 
-  tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-  default_private_key=$(echo ${tmp_key} | awk '{print $3}')
-  default_public_key=$(echo ${tmp_key} | awk '{print $6}')
+  # 生成私钥公钥
+  # xray x25519 如果接收一个合法的私钥, 会生成对应的公钥. 如果接收一个非法的私钥, 会先"修正"为合法的私钥. 这个"修正"的过程, 会修改其中的一些字节
+  # https://github.dev/XTLS/Xray-core/blob/6830089d3c42483512842369c908f9de75da2eaa/main/commands/all/curve25519.go#L36
+  tmp_key=$(echo -n ${reality_key_seed} | xargs xray x25519 -i)
+  default_private_key=$(echo ${tmp_key} | awk '{print $2}')
+  default_public_key=$(echo ${tmp_key} | awk '{print $4}')
 
   echo -e "请输入 "$yellow"x25519 Private Key"$none" x25519私钥 :"
   read -p "$(echo -e "(默认私钥 Private Key: ${cyan}${default_private_key}$none):")" private_key
@@ -235,8 +258,8 @@ if [[ -z $private_key ]]; then
     public_key=$default_public_key
   else
     tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-    private_key=$(echo ${tmp_key} | awk '{print $3}')
-    public_key=$(echo ${tmp_key} | awk '{print $6}')
+    private_key=$(echo ${tmp_key} | awk '{print $2}')
+    public_key=$(echo ${tmp_key} | awk '{print $4}')
   fi
 
   echo
@@ -461,7 +484,7 @@ if [[ $netstack == "6" ]]; then
     pause
 
     # 安装 WARP IPv4
-    bash <(curl -fsSL git.io/warp.sh) 4
+    bash <(https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) 4
 
     # 重启 Xray
     echo
@@ -481,7 +504,7 @@ elif  [[ $netstack == "4" ]]; then
     pause
 
     # 安装 WARP IPv6
-    bash <(curl -fsSL git.io/warp.sh) 6
+    bash <(https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) 6
 
     # 重启 Xray
     echo

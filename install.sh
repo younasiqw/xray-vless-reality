@@ -124,9 +124,11 @@ apt install -y curl sudo jq qrencode net-tools lsof
 
 # Xray官方脚本 安装最新版本
 echo
-echo -e "${yellow}官方脚本安装最新版本$none"
+# echo -e "${yellow}官方脚本安装最新版本$none"
+echo -e "${yellow}Xray官方脚本安装 v25.10.15 版本$none"
 echo "----------------------------------------------------------------"
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version v25.10.15
+# bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
 # 更新 geodata
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install-geodata

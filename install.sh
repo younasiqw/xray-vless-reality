@@ -311,6 +311,19 @@ if [[ -z $domain ]]; then
   echo
 fi
 
+# 目标网站端口
+if [[ -z $dest_port ]]; then
+  echo -e "请输入目标网站的端口 ${magenta}Port${none}"
+  read -p "(默认 Default 443): " dest_port
+  [ -z "$dest_port" ] && dest_port=443
+
+  echo
+  echo
+  echo -e "$yellow 目标端口 (Dest Port) = ${cyan}$dest_port$none"
+  echo "----------------------------------------------------------------"
+  echo
+fi
+
 # 配置config.json
 echo
 echo -e "$yellow 配置 /usr/local/etc/xray/config.json $none"
@@ -341,7 +354,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "${domain}:443",    // ***
+          "dest": "${domain}:${dest_port}",    // ***
           "xver": 0,
           "serverNames": ["${domain}"],    // ***
           "privateKey": "${private_key}",    // ***私钥

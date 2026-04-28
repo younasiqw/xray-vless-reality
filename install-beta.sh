@@ -63,11 +63,6 @@ install_xray() {
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version "$version"
 }
 
-# 核心修复方法：清理 Xray 输出中的乱码和格式
-clean_key() {
-    echo "$1" | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | awk '{print $NF}' | tr -d '\r\n\t '
-}
-
 config_reality() {
     get_ip
     echo -e "\n--- IP 选择 ---"
@@ -88,21 +83,17 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (完美修复：彻底过滤不可见字符与颜色代码)
-    tmp_key=$(/usr/local/bin/xray x25519)
-    auto_pk=$(clean_key "$(echo "$tmp_key" | grep -i "Private key")")
-    auto_pbk=$(clean_key "$(echo "$tmp_key" | grep -i "Public key")")
+    # Keys (按照你的思路：系统级自主生成私钥 -> 推导公钥)
+    # 利用 openssl 随机生成 32 字节，并转换为 Xray 兼容的 URL-Safe Base64 格式
+    auto_pk=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
     
     read -p "请输入私钥 (回车自动生成): " pk
     if [[ -z "$pk" ]]; then
         pk=$auto_pk
-        pbk=$auto_pbk
-    else
-        # 修复用户自定义私钥时的公钥推断
-        tmp_key_custom=$(/usr/local/bin/xray x25519 -i "${pk}")
-        pk=$(clean_key "$(echo "$tmp_key_custom" | grep -i "Private key")")
-        pbk=$(clean_key "$(echo "$tmp_key_custom" | grep -i "Public key")")
     fi
+
+    # 统一通过私钥向 Xray 推导公钥，采用最严密的字符过滤 (仅保留 A-Z, a-z, 0-9, -, _)
+    pbk=$(/usr/local/bin/xray x25519 -i "$pk" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -dc 'A-Za-z0-9-_')
 
     # ShortID
     auto_sid=$(openssl rand -hex 8)
@@ -173,7 +164,6 @@ show_info() {
         return
     fi
     
-    # 获取传递的指纹或默认 chrome
     local fp_used=${1:-chrome}
 
     # 提取信息
@@ -184,15 +174,14 @@ show_info() {
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
-    # 重新获取公钥 (完美修复显示空白的问题)
-    tmp_key_display=$(/usr/local/bin/xray x25519 -i "${pk}")
-    pbk_display=$(clean_key "$(echo "$tmp_key_display" | grep -i "Public key")")
-
-    # 动态获取 IP 用于分享链接
+    # 动态获取 IP
     if [[ -z "$server_ip" ]]; then
         get_ip
         server_ip=${ipv4:-$ipv6}
     fi
+
+    # 重新推导公钥，采用最严密的字符过滤 (彻底解决显示空白或配置崩溃问题)
+    pbk_display=$(/usr/local/bin/xray x25519 -i "${pk}" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -dc 'A-Za-z0-9-_')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip}"
@@ -275,6 +264,7 @@ while true; do
             add_s5_outbound
             ;;
         4)
+            get_ip
             show_info
             ;;
         0)

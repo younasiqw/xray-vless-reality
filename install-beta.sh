@@ -83,11 +83,10 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (这里修复了提取逻辑)
-    reality_key_seed=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
-    tmp_key=$(/usr/local/bin/xray x25519 -i "${reality_key_seed}")
-    auto_pk=$(echo "$tmp_key" | grep -i "Private key" | awk '{print $3}')
-    auto_pbk=$(echo "$tmp_key" | grep -i "Public key" | awk '{print $3}')
+    # Keys (完美修复：使用 Xray 原生生成可靠的密钥对，放弃易错的 md5 转换)
+    tmp_key=$(/usr/local/bin/xray x25519)
+    auto_pk=$(echo "$tmp_key" | grep -i "Private key" | sed 's/.*:[ \t]*//')
+    auto_pbk=$(echo "$tmp_key" | grep -i "Public key" | sed 's/.*:[ \t]*//')
     
     read -p "请输入私钥 (回车自动生成): " pk
     if [[ -z "$pk" ]]; then
@@ -95,8 +94,8 @@ config_reality() {
         pbk=$auto_pbk
     else
         tmp_key_custom=$(/usr/local/bin/xray x25519 -i "${pk}")
-        pk=$(echo "$tmp_key_custom" | grep -i "Private key" | awk '{print $3}')
-        pbk=$(echo "$tmp_key_custom" | grep -i "Public key" | awk '{print $3}')
+        pk=$(echo "$tmp_key_custom" | grep -i "Private key" | sed 's/.*:[ \t]*//')
+        pbk=$(echo "$tmp_key_custom" | grep -i "Public key" | sed 's/.*:[ \t]*//')
     fi
 
     # ShortID
@@ -104,12 +103,16 @@ config_reality() {
     read -p "请输入 ShortID (回车随机生成: $auto_sid): " sid
     sid=${sid:-$auto_sid}
 
-    # Fingerprint
+    # Fingerprint (修复了原脚本直接回车会选中 randomized 的 Bug)
     echo -e "\n--- 选择 Fingerprint (指纹) ---"
     fp_list=("chrome" "firefox" "safari" "ios" "android" "edge" "360" "qq" "random" "randomized")
     for i in "${!fp_list[@]}"; do echo -e "$((i+1)). ${fp_list[$i]}"; done
     read -p "选择编号 (默认 1): " fp_idx
-    fp=${fp_list[$((fp_idx-1))]:-chrome}
+    if [[ -z "$fp_idx" ]]; then
+        fp="chrome"
+    else
+        fp=${fp_list[$((fp_idx-1))]:-chrome}
+    fi
 
     # Dest
     read -p "请输入目标网站域名 (例如 www.microsoft.com): " dest_site
@@ -172,9 +175,9 @@ show_info() {
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
-    # 重新获取公钥(此处也修复了提取逻辑)
+    # 重新获取公钥 (完美修复正则截取)
     tmp_key_display=$(/usr/local/bin/xray x25519 -i "${pk}")
-    pbk_display=$(echo "$tmp_key_display" | grep -i "Public key" | awk '{print $3}')
+    pbk_display=$(echo "$tmp_key_display" | grep -i "Public key" | sed 's/.*:[ \t]*//')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip:-$ipv4}"

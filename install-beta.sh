@@ -33,7 +33,7 @@ show_menu() {
     echo -e " ░ ▒░   ░  ░░ ▒▓ ░▒▓░ ▒ ░░▒░▒░ ▒░▒░▒░ ▒ ▒▒ ▓▒░▒▓▒ ▒ ▒ ▒ ▒▓▒ ▒ ░ ▒▒   ▓▒█░░▓   "
     echo -e " ░  ░      ░  ░▒ ░ ▒░ ▒ ░▒░ ░  ░ ▒ ▒░ ░ ░▒ ▒░░░▒░ ░ ░ ░ ░▒  ░ ░  ▒   ▒▒ ░ ▒ ░ "
     echo -e " ░      ░     ░░   ░  ░  ░░ ░░ ░ ░ ▒  ░ ░░ ░  ░░░ ░ ░ ░  ░  ░    ░   ▒    ▒ ░ "
-    echo -e "        ░      ░      ░  ░  ░    ░ ░  ░  ░      ░           ░        ░  ░ ░   ${PLAIN}"
+    echo -e "        ░      ░      ░  ░  ░    ░ ░  ░  ░      ░            ░       ░  ░ ░   ${PLAIN}"
     echo -e "--------------------------------------------------------------------------------"
     echo -e "  ${GREEN}1.${PLAIN} 安装 REALITY"
     echo -e "  ${GREEN}2.${PLAIN} 卸载 REALITY"
@@ -63,6 +63,11 @@ install_xray() {
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --version "$version"
 }
 
+# 核心修复方法：清理 Xray 输出中的乱码和格式
+clean_key() {
+    echo "$1" | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | awk '{print $NF}' | tr -d '\r\n\t '
+}
+
 config_reality() {
     get_ip
     echo -e "\n--- IP 选择 ---"
@@ -83,19 +88,20 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (完美修复：使用 Xray 原生生成可靠的密钥对，放弃易错的 md5 转换)
+    # Keys (完美修复：彻底过滤不可见字符与颜色代码)
     tmp_key=$(/usr/local/bin/xray x25519)
-    auto_pk=$(echo "$tmp_key" | grep -i "Private key" | sed 's/.*:[ \t]*//')
-    auto_pbk=$(echo "$tmp_key" | grep -i "Public key" | sed 's/.*:[ \t]*//')
+    auto_pk=$(clean_key "$(echo "$tmp_key" | grep -i "Private key")")
+    auto_pbk=$(clean_key "$(echo "$tmp_key" | grep -i "Public key")")
     
     read -p "请输入私钥 (回车自动生成): " pk
     if [[ -z "$pk" ]]; then
         pk=$auto_pk
         pbk=$auto_pbk
     else
+        # 修复用户自定义私钥时的公钥推断
         tmp_key_custom=$(/usr/local/bin/xray x25519 -i "${pk}")
-        pk=$(echo "$tmp_key_custom" | grep -i "Private key" | sed 's/.*:[ \t]*//')
-        pbk=$(echo "$tmp_key_custom" | grep -i "Public key" | sed 's/.*:[ \t]*//')
+        pk=$(clean_key "$(echo "$tmp_key_custom" | grep -i "Private key")")
+        pbk=$(clean_key "$(echo "$tmp_key_custom" | grep -i "Public key")")
     fi
 
     # ShortID
@@ -103,7 +109,7 @@ config_reality() {
     read -p "请输入 ShortID (回车随机生成: $auto_sid): " sid
     sid=${sid:-$auto_sid}
 
-    # Fingerprint (修复了原脚本直接回车会选中 randomized 的 Bug)
+    # Fingerprint
     echo -e "\n--- 选择 Fingerprint (指纹) ---"
     fp_list=("chrome" "firefox" "safari" "ios" "android" "edge" "360" "qq" "random" "randomized")
     for i in "${!fp_list[@]}"; do echo -e "$((i+1)). ${fp_list[$i]}"; done
@@ -158,7 +164,7 @@ config_reality() {
 EOF
     systemctl restart xray
     echo -e "${GREEN}REALITY 安装完成并已启动！${PLAIN}"
-    show_info
+    show_info "$fp"
 }
 
 show_info() {
@@ -167,6 +173,9 @@ show_info() {
         return
     fi
     
+    # 获取传递的指纹或默认 chrome
+    local fp_used=${1:-chrome}
+
     # 提取信息
     port=$(jq -r '.inbounds[0].port' $CONFIG_FILE)
     uuid=$(jq -r '.inbounds[0].settings.clients[0].id' $CONFIG_FILE)
@@ -175,23 +184,28 @@ show_info() {
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
-    # 重新获取公钥 (完美修复正则截取)
+    # 重新获取公钥 (完美修复显示空白的问题)
     tmp_key_display=$(/usr/local/bin/xray x25519 -i "${pk}")
-    pbk_display=$(echo "$tmp_key_display" | grep -i "Public key" | sed 's/.*:[ \t]*//')
+    pbk_display=$(clean_key "$(echo "$tmp_key_display" | grep -i "Public key")")
+
+    # 动态获取 IP 用于分享链接
+    if [[ -z "$server_ip" ]]; then
+        get_ip
+        server_ip=${ipv4:-$ipv6}
+    fi
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
-    echo -e "服务器 IP  : ${server_ip:-$ipv4}"
+    echo -e "服务器 IP  : ${server_ip}"
     echo -e "监听端口   : $port"
     echo -e "UUID       : $uuid"
     echo -e "流控 (flow): $flow"
     echo -e "目标网站   : $sni"
-    echo -e "公钥 (pbk) : $pbk_display"
+    echo -e "公钥 (pbk) : ${GREEN}$pbk_display${PLAIN}"
     echo -e "私钥 (pk)  : $pk"
     echo -e "ShortID    : $sid"
     
     # 拼接 URL
-    # 默认指纹设为 chrome，如果需要动态获取需从脚本逻辑保存
-    url="vless://$uuid@${server_ip:-$ipv4}:$port?security=reality&sni=$sni&fp=chrome&pbk=$pbk_display&sid=$sid&type=tcp&flow=$flow#REALITY_$(hostname)"
+    url="vless://$uuid@${server_ip}:$port?security=reality&sni=$sni&fp=$fp_used&pbk=$pbk_display&sid=$sid&type=tcp&flow=$flow#REALITY_$(hostname)"
     echo -e "\n${GREEN}分享链接 (URL):${PLAIN}\n${BLUE}$url${PLAIN}"
 }
 
@@ -206,7 +220,6 @@ add_s5_outbound() {
     s5_domains=${s5_domains:-"netflix.com,netflix.net,nflximg.net,nflxvideo.net,nflxso.net,nflxext.com"}
 
     # 使用 jq 更新配置
-    # 1. 添加 outbound
     s5_outbound=$(cat <<EOF
 {
     "protocol": "socks",
@@ -221,7 +234,6 @@ add_s5_outbound() {
 }
 EOF
 )
-    # 2. 添加 路由规则
     s5_rule=$(cat <<EOF
 {
     "type": "field",
@@ -231,7 +243,6 @@ EOF
 EOF
 )
 
-    # 注入到文件
     tmp_config=$(mktemp)
     jq ".outbounds += [$s5_outbound] | .routing.rules = [$s5_rule] + .routing.rules" $CONFIG_FILE > "$tmp_config" && mv "$tmp_config" $CONFIG_FILE
     
@@ -264,7 +275,6 @@ while true; do
             add_s5_outbound
             ;;
         4)
-            get_ip
             show_info
             ;;
         0)

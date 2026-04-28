@@ -56,7 +56,7 @@ get_ip() {
 install_xray() {
     latest_version=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
     echo -e "检测到 Xray 最新版本为: ${GREEN}${latest_version}${PLAIN}"
-    read -p "直接回车安装最新版，或输入版本号 (例如 v1.8.4): " input_version
+    read -p "直接回车安装最新版，或输入版本号 (例如 v26.3.27): " input_version
     version=${input_version:-$latest_version}
 
     echo -e "正在安装 Xray $version..."

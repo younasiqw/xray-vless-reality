@@ -83,8 +83,7 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (按照你的思路：系统级自主生成私钥 -> 推导公钥)
-    # 利用 openssl 随机生成 32 字节，并转换为 Xray 兼容的 URL-Safe Base64 格式
+    # Keys (系统级自主生成私钥 -> 推导公钥)
     auto_pk=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
     
     read -p "请输入私钥 (回车自动生成): " pk
@@ -92,8 +91,11 @@ config_reality() {
         pk=$auto_pk
     fi
 
-    # 统一通过私钥向 Xray 推导公钥，采用最严密的字符过滤 (仅保留 A-Z, a-z, 0-9, -, _)
-    pbk=$(/usr/local/bin/xray x25519 -i "$pk" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -dc 'A-Za-z0-9-_')
+    # 【修复核心 1】：传给 Xray 前，强制剔除私钥中所有隐藏的换行符或空格，防止命令静默崩溃
+    pk=$(echo "$pk" | tr -dc 'A-Za-z0-9-_')
+
+    # 【修复核心 2】：过滤掉潜在的 ANSI 色彩代码 -> 匹配 Public 行 -> 取最后一列（秘钥本体） -> 二次过滤杂质
+    pbk=$(/usr/local/bin/xray x25519 -i "$pk" | sed -E "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | grep -i "Public" | awk '{print $NF}' | tr -dc 'A-Za-z0-9-_')
 
     # ShortID
     auto_sid=$(openssl rand -hex 8)
@@ -174,14 +176,17 @@ show_info() {
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
+    # 【修复核心 3】：jq 提取的变量极大概率带有不可见的 \r，必须清理
+    pk=$(echo "$pk" | tr -dc 'A-Za-z0-9-_')
+
     # 动态获取 IP
     if [[ -z "$server_ip" ]]; then
         get_ip
         server_ip=${ipv4:-$ipv6}
     fi
 
-    # 重新推导公钥，采用最严密的字符过滤 (彻底解决显示空白或配置崩溃问题)
-    pbk_display=$(/usr/local/bin/xray x25519 -i "${pk}" | grep -i "Public key" | awk -F ':' '{print $2}' | tr -dc 'A-Za-z0-9-_')
+    # 重新推导公钥，确保命令不会因为不可见字符而崩溃输出空白
+    pbk_display=$(/usr/local/bin/xray x25519 -i "${pk}" | sed -E "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | grep -i "Public" | awk '{print $NF}' | tr -dc 'A-Za-z0-9-_')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip}"

@@ -83,14 +83,21 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys
-    keys=$(/usr/local/bin/xray x25519)
-    auto_pk=$(echo "$keys" | awk '/Private key:/ {print $3}')
-    auto_pbk=$(echo "$keys" | awk '/Public key:/ {print $3}')
+    # Keys (已修复部分)
+    reality_key_seed=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+    tmp_key=$(echo -n ${reality_key_seed} | xargs /usr/local/bin/xray x25519 -i)
+    auto_pk=$(echo ${tmp_key} | awk '{print $2}')
+    auto_pbk=$(echo ${tmp_key} | awk '{print $4}')
+    
     read -p "请输入私钥 (回车自动生成): " pk
-    pk=${pk:-$auto_pk}
-    # 如果是自动生成的私钥，公钥也用自动生成的；如果用户自定私钥，需用户提供公钥(脚本简化处理，建议回车)
-    if [[ "$pk" == "$auto_pk" ]]; then pbk=$auto_pbk; else read -p "请输入对应公钥: " pbk; fi
+    if [[ -z "$pk" ]]; then
+        pk=$auto_pk
+        pbk=$auto_pbk
+    else
+        tmp_key_custom=$(echo -n ${pk} | xargs /usr/local/bin/xray x25519 -i)
+        pk=$(echo ${tmp_key_custom} | awk '{print $2}')
+        pbk=$(echo ${tmp_key_custom} | awk '{print $4}')
+    fi
 
     # ShortID
     auto_sid=$(openssl rand -hex 8)
@@ -165,8 +172,10 @@ show_info() {
     pbk=$(echo "请查阅安装时的公钥") # 配置文件不存公钥，仅存私钥
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
-    # 重新获取公钥(由于xray配置不存公钥，这里为了显示，通常在安装时记录。此处重新计算或提示)
-    pbk_display=$(/usr/local/bin/xray x25519 -i "$pk" | awk '/Public key:/ {print $3}')
+    
+    # 重新获取公钥(由于xray配置不存公钥，这里为了显示，通常在安装时记录。此处重新计算或提示) 已修复部分
+    tmp_key_display=$(echo -n "${pk}" | xargs /usr/local/bin/xray x25519 -i)
+    pbk_display=$(echo ${tmp_key_display} | awk '{print $4}')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip:-$ipv4}"

@@ -48,13 +48,14 @@ install_dependencies() {
     $CMD_INSTALL curl wget jq openssl tar
 }
 
+# 【修复挂起卡死的核心】：增加 -m 5 (最大等待 5 秒)，防止没有 IPv6 的机器无限卡死
 get_ip() {
-    ipv4=$(curl -s https://v4.ident.me)
-    ipv6=$(curl -s https://v6.ident.me)
+    ipv4=$(curl -s -m 5 https://v4.ident.me)
+    ipv6=$(curl -s -m 5 https://v6.ident.me)
 }
 
 install_xray() {
-    latest_version=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
+    latest_version=$(curl -s -m 5 https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
     echo -e "检测到 Xray 最新版本为: ${GREEN}${latest_version}${PLAIN}"
     read -p "直接回车安装最新版，或输入版本号 (例如 v26.3.27): " input_version
     version=${input_version:-$latest_version}
@@ -277,7 +278,8 @@ while true; do
             add_s5_outbound
             ;;
         4)
-            get_ip
+            # 在选项4中，如果在 show_info 里 server_ip 是空的它会自动调用一次 get_ip，
+            # 没必要在这里也调用一次，这里可以直接清掉前面的 get_ip 以提升响应速度
             show_info
             ;;
         0)

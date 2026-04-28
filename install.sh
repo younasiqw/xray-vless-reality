@@ -157,16 +157,6 @@ if [[ -n $uuid ]]; then
   echo "----------------------------------------------------------------"
 fi
 
-# 打开BBR
-# echo
-# echo -e "$yellow打开BBR$none"
-# echo "----------------------------------------------------------------"
-# sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
-# sed -i '/net.core.default_qdisc/d' /etc/sysctl.conf
-# echo "net.ipv4.tcp_congestion_control = bbr" >>/etc/sysctl.conf
-# echo "net.core.default_qdisc = fq" >>/etc/sysctl.conf
-# sysctl -p >/dev/null 2>&1
-
 # 配置 VLESS_Reality 模式, 需要:端口, UUID, x25519公私钥, 目标网站
 echo
 echo -e "$yellow配置 VLESS_Reality 模式$none"
@@ -311,19 +301,6 @@ if [[ -z $domain ]]; then
   echo
 fi
 
-# 目标网站端口
-if [[ -z $dest_port ]]; then
-  echo -e "请输入目标网站的端口 ${magenta}Port${none}"
-  read -p "(默认 Default 443): " dest_port
-  [ -z "$dest_port" ] && dest_port=443
-
-  echo
-  echo
-  echo -e "$yellow 目标端口 (Dest Port) = ${cyan}$dest_port$none"
-  echo "----------------------------------------------------------------"
-  echo
-fi
-
 # 配置config.json
 echo
 echo -e "$yellow 配置 /usr/local/etc/xray/config.json $none"
@@ -354,7 +331,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "${domain}:${dest_port}",    // ***
+          "dest": "${domain}:443",    // ***
           "xver": 0,
           "serverNames": ["${domain}"],    // ***
           "privateKey": "${private_key}",    // ***私钥
@@ -446,7 +423,7 @@ echo "----------------------------------------------------------------"
 service xray restart
 
 # 指纹FingerPrint
-fingerprint="firefox"
+fingerprint="chrome"
 
 # SpiderX
 spiderx=""

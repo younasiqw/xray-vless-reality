@@ -83,20 +83,20 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (已修复部分)
+    # Keys (这里修复了提取逻辑)
     reality_key_seed=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
-    tmp_key=$(echo -n ${reality_key_seed} | xargs /usr/local/bin/xray x25519 -i)
-    auto_pk=$(echo ${tmp_key} | awk '{print $2}')
-    auto_pbk=$(echo ${tmp_key} | awk '{print $4}')
+    tmp_key=$(/usr/local/bin/xray x25519 -i "${reality_key_seed}")
+    auto_pk=$(echo "$tmp_key" | grep -i "Private key" | awk '{print $3}')
+    auto_pbk=$(echo "$tmp_key" | grep -i "Public key" | awk '{print $3}')
     
     read -p "请输入私钥 (回车自动生成): " pk
     if [[ -z "$pk" ]]; then
         pk=$auto_pk
         pbk=$auto_pbk
     else
-        tmp_key_custom=$(echo -n ${pk} | xargs /usr/local/bin/xray x25519 -i)
-        pk=$(echo ${tmp_key_custom} | awk '{print $2}')
-        pbk=$(echo ${tmp_key_custom} | awk '{print $4}')
+        tmp_key_custom=$(/usr/local/bin/xray x25519 -i "${pk}")
+        pk=$(echo "$tmp_key_custom" | grep -i "Private key" | awk '{print $3}')
+        pbk=$(echo "$tmp_key_custom" | grep -i "Public key" | awk '{print $3}')
     fi
 
     # ShortID
@@ -169,13 +169,12 @@ show_info() {
     uuid=$(jq -r '.inbounds[0].settings.clients[0].id' $CONFIG_FILE)
     flow=$(jq -r '.inbounds[0].settings.clients[0].flow' $CONFIG_FILE)
     sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' $CONFIG_FILE)
-    pbk=$(echo "请查阅安装时的公钥") # 配置文件不存公钥，仅存私钥
     pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
-    # 重新获取公钥(由于xray配置不存公钥，这里为了显示，通常在安装时记录。此处重新计算或提示) 已修复部分
-    tmp_key_display=$(echo -n "${pk}" | xargs /usr/local/bin/xray x25519 -i)
-    pbk_display=$(echo ${tmp_key_display} | awk '{print $4}')
+    # 重新获取公钥(此处也修复了提取逻辑)
+    tmp_key_display=$(/usr/local/bin/xray x25519 -i "${pk}")
+    pbk_display=$(echo "$tmp_key_display" | grep -i "Public key" | awk '{print $3}')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip:-$ipv4}"

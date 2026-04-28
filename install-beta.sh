@@ -83,19 +83,27 @@ config_reality() {
     read -p "请输入 UUID (回车自动生成: $auto_uuid): " uuid
     uuid=${uuid:-$auto_uuid}
 
-    # Keys (系统级自主生成私钥 -> 推导公钥)
-    auto_pk=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')
+    # Keys (根据手动调试信息完美适配)
+    read -p "请输入私钥 (回车自动生成): " input_pk
     
-    read -p "请输入私钥 (回车自动生成): " pk
-    if [[ -z "$pk" ]]; then
-        pk=$auto_pk
+    if [[ -z "$input_pk" ]]; then
+        # 自动生成：使用 Xray 原生逻辑，直接抓取最后一段字符串
+        key_pair=$(/usr/local/bin/xray x25519)
+        pk=$(echo "$key_pair" | awk '/Private/ {print $NF}' | tr -dc 'A-Za-z0-9-_')
+        pbk=$(echo "$key_pair" | awk '/Public/ {print $NF}' | tr -dc 'A-Za-z0-9-_')
+    else
+        # 手动输入：用 printf 安全剥离手滑复制进来的 \r 和空格
+        pk=$(printf "%s" "$input_pk" | tr -dc 'A-Za-z0-9-_')
+        
+        # 抛弃 grep，直接用 awk 匹配包含 Public 的行，提取最后一个字段，解决格式差异
+        pbk=$(/usr/local/bin/xray x25519 -i "$pk" 2>/dev/null | awk '/Public/ {print $NF}' | tr -dc 'A-Za-z0-9-_')
+        
+        # 容错：如果用户输入的私钥根本不对，给出提示
+        if [[ -z "$pbk" ]]; then
+            echo -e "${RED}错误：私钥格式无效，Xray 无法推导公钥！请检查输入。${PLAIN}"
+            exit 1
+        fi
     fi
-
-    # 【修复核心 1】：传给 Xray 前，强制剔除私钥中所有隐藏的换行符或空格，防止命令静默崩溃
-    pk=$(echo "$pk" | tr -dc 'A-Za-z0-9-_')
-
-    # 【修复核心 2】：过滤掉潜在的 ANSI 色彩代码 -> 匹配 Public 行 -> 取最后一列（秘钥本体） -> 二次过滤杂质
-    pbk=$(/usr/local/bin/xray x25519 -i "$pk" | sed -E "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | grep -i "Public" | awk '{print $NF}' | tr -dc 'A-Za-z0-9-_')
 
     # ShortID
     auto_sid=$(openssl rand -hex 8)
@@ -173,11 +181,11 @@ show_info() {
     uuid=$(jq -r '.inbounds[0].settings.clients[0].id' $CONFIG_FILE)
     flow=$(jq -r '.inbounds[0].settings.clients[0].flow' $CONFIG_FILE)
     sni=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' $CONFIG_FILE)
-    pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
+    raw_pk=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' $CONFIG_FILE)
     sid=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' $CONFIG_FILE)
     
-    # 【修复核心 3】：jq 提取的变量极大概率带有不可见的 \r，必须清理
-    pk=$(echo "$pk" | tr -dc 'A-Za-z0-9-_')
+    # 【核心修复】：将 jq 提取的私钥强行洗净，彻底干掉附着的 \r 和杂乱字符
+    pk=$(printf "%s" "$raw_pk" | tr -dc 'A-Za-z0-9-_')
 
     # 动态获取 IP
     if [[ -z "$server_ip" ]]; then
@@ -185,8 +193,8 @@ show_info() {
         server_ip=${ipv4:-$ipv6}
     fi
 
-    # 重新推导公钥，确保命令不会因为不可见字符而崩溃输出空白
-    pbk_display=$(/usr/local/bin/xray x25519 -i "${pk}" | sed -E "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | grep -i "Public" | awk '{print $NF}' | tr -dc 'A-Za-z0-9-_')
+    # 【核心修复】：使用 awk 直接匹配 'Public' 行并打印最后一列 ($NF)，无视它叫 Password 还是 PublicKey
+    pbk_display=$(/usr/local/bin/xray x25519 -i "$pk" 2>/dev/null | awk '/Public/ {print $NF}' | tr -dc 'A-Za-z0-9-_')
 
     echo -e "\n${YELLOW}--- REALITY 配置信息 ---${PLAIN}"
     echo -e "服务器 IP  : ${server_ip}"

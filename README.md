@@ -16,6 +16,9 @@ apt install -y curl
 ```
 bash <(curl -L https://cdn.jsdelivr.net/gh/younasiqw/xray-vless-reality@refs/heads/main/install.sh)
 ```
+```
+bash <(curl -L https://cdn.jsdelivr.net/gh/younasiqw/xray-vless-reality@refs/heads/main/install-ssbeta.sh)
+```
 
 脚本中很大部分都是在校验用户的输入。其实照着下面的步骤自己配置就行了。
 

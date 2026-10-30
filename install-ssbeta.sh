@@ -9,6 +9,7 @@ PLAIN='\033[0m'
 
 # 配置文件路径
 CONFIG_FILE="/usr/local/etc/xray/config.json"
+SS_CONFIG_FILE="/etc/shadowsocks-rust/config.json"
 
 # 检查 root 权限
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误：${PLAIN} 必须使用 root 用户运行此脚本！\n" && exit 1
@@ -26,14 +27,14 @@ fi
 show_menu() {
     clear
     echo -e "${BLUE}  ███▄ ▄███▓ ██▀███   ██░ ██  ▒█████   ██ ▄█▀ █    ██    ██████  ▄▄▄       ██▓ "
-    echo -e " ▓██▒▀█▀ ██▒▓██ ▒ ██▒▓██░ ██▒▒██▒  ██▒ ██▄█▒  ██  ▓██▒▒██     ▒ ▒████▄    ▓██▒ "
+    echo -e " ▓██▒▀█▀ ██▒▓██ ▒ ██▒▓██░ ██▒▒██▒  ██▒ ██▄█▒  ██  ▓██▒▒██    ▒ ▒████▄    ▓██▒ "
     echo -e " ▓██    ▓██░▓██ ░▄█ ▒▒██▀▀██░▒██░  ██▒▓███▄░ ▓██  ▒██░░ ▓██▄   ▒██  ▀█▄  ▒██▒ "
     echo -e " ▒██    ▒██ ▒██▀▀█▄  ░▓█ ░██ ▒██   ██░▓██ █▄ ▓▓█  ░██░  ▒   ██▒░██▄▄▄▄██ ░██░ "
     echo -e " ▒██▒   ░██▒░██▓ ▒██▒░▓█▒░██▓░ ████▓▒░▒██▒ █▄▒▒█████▓ ▒██████▒▒ ▓█   ▓██▒░██░ "
     echo -e " ░ ▒░   ░  ░░ ▒▓ ░▒▓░ ▒ ░░▒░▒░ ▒░▒░▒░ ▒ ▒▒ ▓▒░▒▓▒ ▒ ▒ ▒ ▒▓▒ ▒ ░ ▒▒   ▓▒█░░▓   "
     echo -e " ░  ░      ░  ░▒ ░ ▒░ ▒ ░▒░ ░  ░ ▒ ▒░ ░ ░▒ ▒░░░▒░ ░ ░ ░ ░▒  ░ ░  ▒   ▒▒ ░ ▒ ░ "
-    echo -e " ░      ░     ░░   ░  ░  ░░ ░░ ░ ░ ▒  ░ ░░ ░  ░░░ ░ ░ ░  ░  ░    ░   ▒   ▒ ░ "
-    echo -e "        ░      ░      ░  ░  ░    ░ ░  ░  ░      ░            ░        ░  ░   ${PLAIN}"
+    echo -e " ░      ░     ░░   ░  ░  ░░ ░░ ░ ░ ▒  ░ ░░ ░  ░░░ ░ ░ ░  ░  ░  ░   ░   ▒   ▒ ░ "
+    echo -e "        ░      ░      ░  ░  ░    ░ ░  ░  ░        ░            ░       ░  ░   ${PLAIN}"
     echo -e "--------------------------------------------------------------------------------"
     echo -e "  ${GREEN}1.${PLAIN} 安装 REALITY"
     echo -e "  ${GREEN}2.${PLAIN} 卸载 REALITY"
@@ -170,7 +171,7 @@ EOF
     show_info "$fp"
 }
 
-show_info() {
+show_reality_info() {
     if [[ ! -f $CONFIG_FILE ]]; then
         echo -e "${RED}错误：${PLAIN} 未检测到 Xray 配置文件。"
         return
@@ -211,6 +212,64 @@ show_info() {
     # 拼接 URL
     url="vless://$uuid@${server_ip}:$port?security=reality&sni=$sni&fp=$fp_used&pbk=$pbk_display&sid=$sid&type=tcp&flow=$flow#REALITY_$(hostname)"
     echo -e "\n${GREEN}分享链接 (URL):${PLAIN}\n${BLUE}$url${PLAIN}"
+}
+
+show_ss_info() {
+    if [[ ! -f $SS_CONFIG_FILE ]]; then
+        echo -e "${RED}错误：${PLAIN} 未检测到 Shadowsocks 配置文件。"
+        return
+    fi
+
+    local ss_port=$(jq -r '.server_port' $SS_CONFIG_FILE)
+    local ss_password=$(jq -r '.password' $SS_CONFIG_FILE)
+    local ss_method=$(jq -r '.method' $SS_CONFIG_FILE)
+    local ss_bind=$(jq -r '.server' $SS_CONFIG_FILE)
+
+    # 动态获取 IP
+    if [[ -z "$server_ip" ]]; then
+        get_ip
+        server_ip=${ipv4:-$ipv6}
+    fi
+
+    local ss_ip=$server_ip
+    if [[ "$ss_bind" == "::" && -n "$ipv6" ]]; then
+        ss_ip=$ipv6
+    elif [[ "$ss_bind" == "0.0.0.0" && -n "$ipv4" ]]; then
+        ss_ip=$ipv4
+    fi
+
+    if [[ "$ss_ip" =~ : ]]; then
+        local url_ip="[${ss_ip}]"
+    else
+        local url_ip="${ss_ip}"
+    fi
+    local ss_user_info=$(printf "%s:%s" "$ss_method" "$ss_password" | base64 | tr -d '\r\n')
+    local ss_url="ss://${ss_user_info}@${url_ip}:${ss_port}#SS_$(hostname)"
+
+    echo -e "\n${YELLOW}--- Shadowsocks 配置信息 ---${PLAIN}"
+    echo -e "服务器 IP    : ${ss_ip}"
+    echo -e "服务器端口 : ${ss_port}"
+    echo -e "密码       : ${ss_password}"
+    echo -e "加密方式   : ${ss_method}"
+    echo -e "\n${GREEN}分享链接 (URL):${PLAIN}\n${BLUE}${ss_url}${PLAIN}"
+}
+
+show_info() {
+    local has_installed=0
+
+    if [[ -f $CONFIG_FILE ]]; then
+        has_installed=1
+        show_reality_info "$@"
+    fi
+
+    if [[ -f $SS_CONFIG_FILE ]]; then
+        has_installed=1
+        show_ss_info
+    fi
+
+    if [[ $has_installed -eq 0 ]]; then
+        echo -e "${RED}错误：${PLAIN} 未检测到已安装的节点配置（Xray / Shadowsocks）。"
+    fi
 }
 
 add_s5_outbound() {
@@ -430,7 +489,7 @@ EOF
 
     echo -e "\n${GREEN}Shadowsocks-rust 安装完成并已成功启动！${PLAIN}"
     echo -e "\n${YELLOW}--- Shadowsocks 配置信息 ---${PLAIN}"
-    echo -e "服务器 IP   : ${server_ip}"
+    echo -e "服务器 IP    : ${server_ip}"
     echo -e "服务器端口 : ${port}"
     echo -e "密码       : ${password}"
     echo -e "加密方式   : ${method}"
